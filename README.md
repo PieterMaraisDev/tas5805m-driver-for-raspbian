@@ -192,16 +192,48 @@ You may also comment out built-in audio and HDMI if you're running headless
 #dtoverlay=vc4-kms-v3d
 ```
 
-You need to reboot for changes to take effect, but this will not work just yet. We are referencing the `tas5805m` kernel module there, and this one is not there yet. Therefore we will build it on the same host using the current kernel sources that we just pulled 
+You need to reboot for changes to take effect, but this will not work just yet. The
+overlay references the `tas58xx` kernel module, which still needs to be installed.
 
-## Kernel module - basic setup
+## Kernel module - DKMS setup (recommended)
 
-Now you are ready to build. The first command produces `tas5805m.ko` file among others. Second will copy it to the appropriate kernel modules folder.
+DKMS rebuilds and installs the driver whenever a new kernel is installed, so an
+Ubuntu unattended kernel update does not remove the working module. Install DKMS,
+the compiler, the headers for the running kernel, and Ubuntu's Raspberry Pi header
+meta-package:
 
+```bash
+sudo apt update
+sudo apt install dkms build-essential linux-headers-$(uname -r) linux-headers-raspi
+sudo ./install-dkms.sh
 ```
-$ make all
-$ sudo make install
+
+The `linux-headers-raspi` meta-package is important on Ubuntu: it causes matching
+headers to be pulled in with future `linux-image-raspi` updates. If the system uses
+a different kernel flavour, install that flavour's header meta-package instead.
+
+Confirm that DKMS owns the module and that the copy under `updates/dkms` is the one
+the running kernel will load:
+
+```bash
+dkms status -m tas58xx
+modinfo -n tas58xx
 ```
+
+After changing the driver source, rerun `sudo ./install-dkms.sh`. To remove every
+kernel build of this DKMS revision, run `sudo ./uninstall-dkms.sh`.
+
+### Manual setup (not persistent across kernel upgrades)
+
+For a one-off build without DKMS:
+
+```bash
+make
+sudo make install
+```
+
+The manual install places `tas58xx.ko` under the running kernel's
+`updates/dkms` directory, but it will not be rebuilt for later kernels.
 
 Now we are ready to reboot and check if we have a sound card listed
 
@@ -216,10 +248,10 @@ card 0: LouderRaspberry [Louder-Raspberry], device 0: bcm2835-i2s-tas5805m-ampli
 Check if the new module is correctly loaded
 
 ```
-$ lsmod | grep tas5805m
-tas5805m                6269  1
-regmap_i2c              5027  1 tas5805m
-snd_soc_core          240140  4 snd_soc_simple_card_utils,snd_soc_bcm2835_i2s,tas5805m,snd_soc_simple_card
+$ lsmod | grep tas58xx
+tas58xx                 6269  1
+regmap_i2c              5027  1 tas58xx
+snd_soc_core          240140  4 snd_soc_simple_card_utils,snd_soc_bcm2835_i2s,tas58xx,snd_soc_simple_card
 ```
 
 You can also check the kernel log to see which chip was detected:

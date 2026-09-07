@@ -1,21 +1,21 @@
-# Comment/uncomment the appropriate line to select the desired DSP configuration
-# All options are disabled by default.  Enable only ONE.
+obj-m := tas58xx.o
 
+# Keep the debug symbols in both manual and DKMS builds.
 CFLAGS_tas58xx.o += -g
 
-KDIR ?= /lib/modules/$(shell uname -r)/build
-PWD := $(shell pwd)
-
-obj-m := tas58xx.o
-# enable to compile with debug messages
-#ccflags-y := -DDEBUG
+KERNELRELEASE ?= $(shell uname -r)
+KDIR ?= /lib/modules/$(KERNELRELEASE)/build
+PWD := $(CURDIR)
 
 all:
-	make -C $(KDIR) M=$(PWD) modules
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 clean:
-	make -C $(KDIR) M=$(PWD) clean
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
 
 install:
-	sudo cp $(shell pwd)/tas58xx.ko /lib/modules/$(shell uname -r)/kernel/sound/soc/codecs/snd-soc-tas58xx.ko
-	sudo depmod -a
+	install -D -m 0644 tas58xx.ko \
+		/lib/modules/$(KERNELRELEASE)/updates/dkms/tas58xx.ko
+	depmod -a $(KERNELRELEASE)
+
+.PHONY: all clean install
