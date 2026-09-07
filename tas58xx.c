@@ -179,7 +179,8 @@ struct tas58xx_priv {
 	unsigned int			crossover_freq;  /* Crossover frequency index */
 	bool					fault_monitor;  /* Enable fault monitoring ALSA controls */
 	bool					is_powered;
-	bool					is_muted;
+	bool					user_muted;  /* User mute from "Digital Switch" */
+	bool					stream_muted;  /* Transient ASoC stream mute */
 	bool					dsp_initialized;
 
 	struct work_struct		work;
@@ -318,8 +319,9 @@ static void tas58xx_refresh(struct tas58xx_priv *tas58xx)
 	int db_value = 24 - (tas58xx->vol / 2);  /* 0x00=+24dB, each step is 0.5dB */
 	int db_gain = -(tas58xx->gain / 2);      /* TAS58XX_AGAIN_MAX=0dB, TAS58XX_AGAIN_MIN=-15.5dB, each step is -0.5dB */
 
-	dev_dbg(&tas58xx->i2c->dev, "%s: is_muted=%d, vol=0x%02x (%ddB), gain=0x%02x (%ddB)\n", 
-		__func__, tas58xx->is_muted, tas58xx->vol, db_value, tas58xx->gain, db_gain);
+	dev_dbg(&tas58xx->i2c->dev, "%s: user_muted=%d, stream_muted=%d, vol=0x%02x (%ddB), gain=0x%02x (%ddB)\n",
+		__func__, tas58xx->user_muted, tas58xx->stream_muted,
+		tas58xx->vol, db_value, tas58xx->gain, db_gain);
 
 	SET_BOOK_AND_PAGE(rm, TAS58XX_BOOK_CONTROL_PORT, TAS58XX_REG_PAGE_0);
 
@@ -559,7 +561,8 @@ refresh_device_state:
 	SET_BOOK_AND_PAGE(rm, TAS58XX_BOOK_CONTROL_PORT, TAS58XX_REG_PAGE_0);
 	
 	/* Set/clear digital soft-mute */
-	uint8_t device_state = (tas58xx->is_muted ? TAS58XX_DCTRL2_MUTE : 0) |
+	uint8_t device_state = ((tas58xx->user_muted || tas58xx->stream_muted) ?
+			TAS58XX_DCTRL2_MUTE : 0) |
 			TAS58XX_DCTRL2_MODE_PLAY;
 	dev_dbg(&tas58xx->i2c->dev, "%s: writing device state 0x%02x\n",
 				__func__, device_state);
@@ -630,6 +633,58 @@ static int tas58xx_vol_put(struct snd_kcontrol *kcontrol,
 			tas58xx_refresh(tas58xx);
 		else
 			dev_dbg(component->dev, "%s: volume change deferred until power-up\n", 
+				__func__);
+		ret = 1;
+	}
+	mutex_unlock(&tas58xx->lock);
+
+	return ret;
+}
+
+static int tas58xx_switch_info(struct snd_kcontrol *kcontrol,
+			       struct snd_ctl_elem_info *uinfo)
+{
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_BOOLEAN;
+	uinfo->count = 1;
+	uinfo->value.integer.min = 0;
+	uinfo->value.integer.max = 1;
+	return 0;
+}
+
+static int tas58xx_switch_get(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct tas58xx_priv *tas58xx =
+		snd_soc_component_get_drvdata(component);
+
+	mutex_lock(&tas58xx->lock);
+	/* ALSA playback switches use 1 for audible and 0 for muted. */
+	ucontrol->value.integer.value[0] = !tas58xx->user_muted;
+	mutex_unlock(&tas58xx->lock);
+
+	return 0;
+}
+
+static int tas58xx_switch_put(struct snd_kcontrol *kcontrol,
+			      struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component =
+		snd_soc_kcontrol_component(kcontrol);
+	struct tas58xx_priv *tas58xx =
+		snd_soc_component_get_drvdata(component);
+	bool muted = !ucontrol->value.integer.value[0];
+	int ret = 0;
+
+	mutex_lock(&tas58xx->lock);
+	if (tas58xx->user_muted != muted) {
+		tas58xx->user_muted = muted;
+		if (tas58xx->is_powered)
+			tas58xx_refresh(tas58xx);
+		else
+			dev_dbg(component->dev,
+				"%s: mute change deferred until power-up\n",
 				__func__);
 		ret = 1;
 	}
@@ -1156,6 +1211,14 @@ static const struct snd_kcontrol_new tas58xx_snd_controls_base[] = {
 	},
 	{
 		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER,
+		.name	= "Digital Switch",
+		.access	= SNDRV_CTL_ELEM_ACCESS_READWRITE,
+		.info	= tas58xx_switch_info,
+		.get	= tas58xx_switch_get,
+		.put	= tas58xx_switch_put,
+	},
+	{
+		.iface	= SNDRV_CTL_ELEM_IFACE_MIXER,
 		.name	= "Analog Gain",
 		.access	= SNDRV_CTL_ELEM_ACCESS_TLV_READ |
 			  SNDRV_CTL_ELEM_ACCESS_READWRITE,
@@ -1538,7 +1601,7 @@ static int tas58xx_mute(struct snd_soc_dai *dai, int mute, int direction)
 	dev_dbg(component->dev, "%s: mute=%d, direction=%d, is_powered=%d\n", 
 		__func__, mute, direction, tas58xx->is_powered);
 
-	tas58xx->is_muted = mute;
+	tas58xx->stream_muted = mute;
 	if (tas58xx->is_powered)
 		tas58xx_refresh(tas58xx);
 	else

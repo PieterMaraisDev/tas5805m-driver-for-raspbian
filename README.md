@@ -283,7 +283,18 @@ alsamixer
 ```
 ![image](https://github.com/user-attachments/assets/58c44fbe-2532-4ca3-b89e-1d676f43647b)
 
-### Digital Volume and Analog Gain
+### Digital Volume, Mute and Analog Gain
+
+The `Digital Volume` and `Digital Switch` controls form one standard ALSA
+`Digital` simple-mixer element. Applications such as Snapclient can therefore
+read and change both its playback volume and mute state. The switch uses normal
+ALSA semantics: `on` is audible and `off` is muted.
+
+```bash
+amixer sget Digital
+amixer sset Digital mute
+amixer sset Digital unmute
+```
 
 > A combination of digital gain and analog gain is used to provide the overall gain of the speaker amplifier. The total amplifier gain consists of the digital gain and the analog gain from the input of the analog modulator to the output of the speaker amplifier power stage.
 
@@ -472,10 +483,10 @@ The driver provides comprehensive ALSA controls that allow real-time changes to 
 
 ### Using the controls
 
-Build and install the driver:
+Build and install the driver through DKMS:
 
 ```
-make all && sudo make install && sudo reboot
+sudo ./install-dkms.sh && sudo reboot
 ```
 
 After reboot, you can access all settings through ALSA. Use `alsamixer` for interactive control or `amixer` for scripting. All changes take effect immediately without requiring a reboot.
@@ -486,6 +497,7 @@ The available ALSA controls depend on your device tree configuration:
 
 **Always Available:**
 - Digital Volume
+- Digital Switch (playback mute)
 - Analog Gain
 - Channel Volume Control(s):
   - **Normal/Stereo Mode**: Channel Left Gain + Channel Right Gain
@@ -501,7 +513,7 @@ The available ALSA controls depend on your device tree configuration:
 **Example Configurations:**
 
 *Single DAC (default, 15-band EQ):*
-- Digital Volume, Analog Gain
+- Digital Volume, Digital Switch, Analog Gain
 - Channel Left Gain, Channel Right Gain
 - Equalizer toggle
 - 15 EQ band sliders (00020 Hz - 16000 Hz)
@@ -509,28 +521,28 @@ The available ALSA controls depend on your device tree configuration:
 - 4 individual mixer sliders (L2L, R2L, L2R, R2R)
 
 *Single DAC (EQ disabled):*
-- Digital Volume, Analog Gain
+- Digital Volume, Digital Switch, Analog Gain
 - Channel Left Gain, Channel Right Gain
 - No Equalizer control
 - Mixer Mode control
 - 4 individual mixer sliders (L2L, R2L, L2R, R2R)
 
 *Single DAC (Bridge mode, EQ enabled):*
-- Digital Volume, Analog Gain
+- Digital Volume, Digital Switch, Analog Gain
 - Mono Channel Gain (single control)
 - Equalizer toggle
 - 15 EQ band sliders (00020 Hz - 16000 Hz)
 - No mixer controls (locked to Mono via device tree)
 
 *Dual DAC Primary (2.0 stereo with HF crossover):*
-- Digital Volume, Analog Gain
+- Digital Volume, Digital Switch, Analog Gain
 - Channel Left Gain, Channel Right Gain
 - Equalizer toggle
 - Crossover Frequency slider (OFF, 60-150Hz) for HF crossover
 - No mixer controls (locked to Stereo via device tree)
 
 *Dual DAC Secondary (0.1 subwoofer with LF crossover):*
-- Digital Volume, Analog Gain
+- Digital Volume, Digital Switch, Analog Gain
 - Mono Channel Gain (single control for bridge mode)
 - Equalizer toggle
 - Crossover Frequency slider (OFF, 60-150Hz) for LF crossover
@@ -582,7 +594,7 @@ The driver dynamically registers different ALSA controls based on the EQ mode co
 **EQ Disabled Mode** (`ti,eq-mode=<0>`):
 - No Equalizer control (EQ completely bypassed at hardware level)
 - No frequency controls available
-- Only Digital Volume and Analog Gain controls are present
+- Only Digital Volume, Digital Switch, and Analog Gain controls are present
 
 **Note:** EQ modes 1-3 include the "Equalizer" control which enables/disables the entire EQ processing at runtime. When `ti,eq-mode=<0>`, the EQ hardware is bypassed completely and the Equalizer control is not registered, saving system resources.
 
